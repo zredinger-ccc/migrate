@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database"
-	"github.com/golang-migrate/migrate/v4/database/multistmt"
 	"github.com/lib/pq"
+	"github.com/zredinger-ccc/migrate/v4"
+	"github.com/zredinger-ccc/migrate/v4/database"
+	"github.com/zredinger-ccc/migrate/v4/database/multistmt"
 )
 
 func init() {

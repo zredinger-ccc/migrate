@@ -17,8 +17,8 @@ import (
 
 	"github.com/cloudspannerecosystem/memefish"
 	"github.com/cloudspannerecosystem/memefish/token"
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database"
+	"github.com/zredinger-ccc/migrate/v4"
+	"github.com/zredinger-ccc/migrate/v4/database"
 
 	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"google.golang.org/api/iterator"

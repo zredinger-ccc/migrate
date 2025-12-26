@@ -16,12 +16,12 @@ import (
 	"testing"
 
 	"github.com/dhui/dktest"
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database"
+	"github.com/zredinger-ccc/migrate/v4"
+	"github.com/zredinger-ccc/migrate/v4/database"
 
-	dt "github.com/golang-migrate/migrate/v4/database/testing"
-	"github.com/golang-migrate/migrate/v4/dktesting"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	dt "github.com/zredinger-ccc/migrate/v4/database/testing"
+	"github.com/zredinger-ccc/migrate/v4/dktesting"
+	_ "github.com/zredinger-ccc/migrate/v4/source/file"
 )
 
 const (

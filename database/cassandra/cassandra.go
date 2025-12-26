@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	"github.com/golang-migrate/migrate/v4/database"
-	"github.com/golang-migrate/migrate/v4/database/multistmt"
+	"github.com/zredinger-ccc/migrate/v4/database"
+	"github.com/zredinger-ccc/migrate/v4/database/multistmt"
 )
 
 func init() {

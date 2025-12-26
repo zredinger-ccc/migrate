@@ -12,10 +12,10 @@ import (
 	"github.com/rqlite/gorqlite"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/golang-migrate/migrate/v4"
-	dt "github.com/golang-migrate/migrate/v4/database/testing"
-	"github.com/golang-migrate/migrate/v4/dktesting"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/zredinger-ccc/migrate/v4"
+	dt "github.com/zredinger-ccc/migrate/v4/database/testing"
+	"github.com/zredinger-ccc/migrate/v4/dktesting"
+	_ "github.com/zredinger-ccc/migrate/v4/source/file"
 )
 
 var defaultPort uint16 = 4001

@@ -6,21 +6,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/golang-migrate/migrate/v4"
 	"log"
 	"strings"
 	"testing"
-)
 
-import (
 	"github.com/dhui/dktest"
-	_ "github.com/lib/pq"
-)
+	"github.com/zredinger-ccc/migrate/v4"
 
-import (
-	dt "github.com/golang-migrate/migrate/v4/database/testing"
-	"github.com/golang-migrate/migrate/v4/dktesting"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/lib/pq"
+
+	dt "github.com/zredinger-ccc/migrate/v4/database/testing"
+	"github.com/zredinger-ccc/migrate/v4/dktesting"
+
+	_ "github.com/zredinger-ccc/migrate/v4/source/file"
 )
 
 const defaultPort = 26257

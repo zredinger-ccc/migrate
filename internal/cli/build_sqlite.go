@@ -3,5 +3,5 @@
 package cli
 
 import (
-	_ "github.com/golang-migrate/migrate/v4/database/sqlite"
+	_ "github.com/zredinger-ccc/migrate/v4/database/sqlite"
 )

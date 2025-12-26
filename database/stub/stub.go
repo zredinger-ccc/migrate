@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"sync/atomic"
 
-	"github.com/golang-migrate/migrate/v4/database"
+	"github.com/zredinger-ccc/migrate/v4/database"
 )
 
 func init() {
