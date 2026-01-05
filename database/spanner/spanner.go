@@ -336,7 +336,7 @@ func (s *Spanner) Drop() error {
 
 func (s *Spanner) viewDropStatements(ctx context.Context) ([]string, error) {
 		dropViewsIter := s.db.data.Single().Query(ctx, spanner.NewStatement(`SELECT
-  		CONCAT('DROP VIEW "', table_name, '";') AS ddl
+  		CONCAT('DROP VIEW `+"`', table_name, '`') AS ddl"+`
 	FROM information_schema.tables
 	WHERE table_schema = ''
   		AND table_type = 'VIEW'
@@ -363,17 +363,20 @@ func (s *Spanner) viewDropStatements(ctx context.Context) ([]string, error) {
 
 func (s *Spanner) constraintDropStatements(ctx context.Context) ([]string, error) {
 		dropConstraintsIter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(`SELECT
-		CONCAT(
-			'ALTER TABLE ',
+		CONCAT( 'ALTER TABLE ',
 			CASE
-			WHEN tc.table_schema = '' THEN CONCAT('"', tc.table_name, '"')
-			ELSE CONCAT('"', tc.table_schema, '"."', tc.table_name, '"')
-		END,
-		' DROP CONSTRAINT "', tc.constraint_name, '";'
-		) AS ddl
-	FROM information_schema.table_constraints tc
-	WHERE tc.constraint_type = 'FOREIGN KEY'
-	ORDER BY tc.table_schema, tc.table_name, tc.constraint_name;`))
+			WHEN tc.table_schema = '' THEN CONCAT('`+"`', tc.table_name, '`')"+`
+			ELSE CONCAT('`+"`', tc.table_schema, '`.`', tc.table_name, '`')"+`
+		END
+			, ' DROP CONSTRAINT `+"`', tc.constraint_name, '`' ) AS ddl"+`
+		FROM
+		information_schema.table_constraints tc
+		WHERE
+		tc.constraint_type = 'FOREIGN KEY'
+		ORDER BY
+		tc.table_schema,
+		tc.table_name,
+		tc.constraint_name;`))
 	defer dropConstraintsIter.Stop()
 
 	stmts := make([]string, 0)
@@ -420,7 +423,7 @@ d AS (
   LEFT JOIN t p6 ON p5.parent_table_name = p6.table_name
   LEFT JOIN t p7 ON p6.parent_table_name = p7.table_name
 )
-SELECT CONCAT('DROP TABLE "', table_name, '";') AS ddl
+SELECT CONCAT('DROP TABLE `+"`', table_name, '`') AS ddl"+`
 FROM d
 ORDER BY depth DESC, table_name;`))
 	defer dropTablesIter.Stop()
