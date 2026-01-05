@@ -299,36 +299,53 @@ func (s *Spanner) Drop() error {
 	if len(res.Statements) == 0 {
 		return nil
 	}
-	stmts := make([]string, 0, 10)
 	
 	viewDropStatements, err := s.viewDropStatements(ctx)
 	if err != nil {
 		return err
 	}
 
-	stmts = append(stmts, viewDropStatements...)
+	op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+		Database:   s.config.DatabaseName,
+		Statements: viewDropStatements,
+	})
+	if err != nil {
+		return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
+	}
+	if err := op.Wait(ctx); err != nil {
+		return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
+	}
 	
 	constraintDropStatements, err := s.constraintDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-	stmts = append(stmts, constraintDropStatements...)
+
+	op, err = s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+		Database:   s.config.DatabaseName,
+		Statements: constraintDropStatements,
+	})
+	if err != nil {
+		return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
+	}
+	if err := op.Wait(ctx); err != nil {
+		return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
+	}
 
 	tableDropStatements, err := s.tableDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-	stmts = append(stmts, tableDropStatements...)
 
-	op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+	op, err = s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 		Database:   s.config.DatabaseName,
-		Statements: stmts,
+		Statements: tableDropStatements,
 	})
 	if err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(stmts, "; "))}
+		return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
 	}
 	if err := op.Wait(ctx); err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(stmts, "; "))}
+		return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
 	}
 
 	return nil
