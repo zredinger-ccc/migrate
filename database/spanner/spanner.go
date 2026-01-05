@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	nurl "net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -283,8 +282,6 @@ func (s *Spanner) Version() (version int, dirty bool, err error) {
 	return version, dirty, nil
 }
 
-var nameMatcher = regexp.MustCompile(`(CREATE TABLE\s(\S+)\s)|(CREATE.+INDEX\s(\S+)\s)`)
-
 // Drop implements database.Driver. Retrieves the database schema first and
 // creates statements to drop the indexes and tables accordingly.
 // Note: The drop statements are created in reverse order to how they're
@@ -302,20 +299,26 @@ func (s *Spanner) Drop() error {
 	if len(res.Statements) == 0 {
 		return nil
 	}
-
-	stmts := make([]string, 0)
-	for i := len(res.Statements) - 1; i >= 0; i-- {
-		s := res.Statements[i]
-		m := nameMatcher.FindSubmatch([]byte(s))
-
-		if len(m) == 0 {
-			continue
-		} else if tbl := m[2]; len(tbl) > 0 {
-			stmts = append(stmts, fmt.Sprintf(`DROP TABLE %s`, tbl))
-		} else if idx := m[4]; len(idx) > 0 {
-			stmts = append(stmts, fmt.Sprintf(`DROP INDEX %s`, idx))
-		}
+	stmts := make([]string, 0, 10)
+	
+	viewDropStatements, err := s.viewDropStatements(ctx)
+	if err != nil {
+		return err
 	}
+
+	stmts = append(stmts, viewDropStatements...)
+	
+	constraintDropStatements, err := s.constraintDropStatements(ctx)
+	if err != nil {
+		return err
+	}
+	stmts = append(stmts, constraintDropStatements...)
+
+	tableDropStatements, err := s.tableDropStatements(ctx)
+	if err != nil {
+		return err
+	}
+	stmts = append(stmts, tableDropStatements...)
 
 	op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 		Database:   s.config.DatabaseName,
@@ -329,6 +332,115 @@ func (s *Spanner) Drop() error {
 	}
 
 	return nil
+}
+
+func (s *Spanner) viewDropStatements(ctx context.Context) ([]string, error) {
+		dropViewsIter := s.db.data.Single().Query(ctx, spanner.NewStatement(`SELECT
+  		CONCAT('DROP VIEW "', table_name, '";') AS ddl
+	FROM information_schema.tables
+	WHERE table_schema = ''
+  		AND table_type = 'VIEW'
+	ORDER BY table_name;`))
+	defer dropViewsIter.Stop()
+
+	stmts := make([]string, 0)
+	for {
+		row, err := dropViewsIter.Next()
+		if err == iterator.Done {
+			break
+		}
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, &database.Error{OrigErr: err}
+		}
+
+		stmts = append(stmts, stmt)
+
+	}
+
+	return stmts, nil
+}
+
+func (s *Spanner) constraintDropStatements(ctx context.Context) ([]string, error) {
+		dropConstraintsIter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(`SELECT
+		CONCAT(
+			'ALTER TABLE ',
+			CASE
+			WHEN tc.table_schema = '' THEN CONCAT('"', tc.table_name, '"')
+			ELSE CONCAT('"', tc.table_schema, '"."', tc.table_name, '"')
+		END,
+		' DROP CONSTRAINT "', tc.constraint_name, '";'
+		) AS ddl
+	FROM information_schema.table_constraints tc
+	WHERE tc.constraint_type = 'FOREIGN KEY'
+	ORDER BY tc.table_schema, tc.table_name, tc.constraint_name;`))
+	defer dropConstraintsIter.Stop()
+
+	stmts := make([]string, 0)
+	for {
+		row, err := dropConstraintsIter.Next()
+		if err == iterator.Done {
+			break
+		}
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, &database.Error{OrigErr: err}
+		}
+
+		stmts = append(stmts, stmt)
+
+	}
+
+	return stmts, nil
+}
+
+func (s *Spanner) tableDropStatements(ctx context.Context) ([]string, error) {
+		dropTablesIter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(`WITH t AS (
+  	SELECT table_name, parent_table_name
+  FROM information_schema.tables
+  WHERE table_schema = ''
+    AND table_type = 'BASE TABLE'
+),
+d AS (
+  SELECT
+    c.table_name,
+    CAST(p1.table_name IS NOT NULL AS INT64) +
+    CAST(p2.table_name IS NOT NULL AS INT64) +
+    CAST(p3.table_name IS NOT NULL AS INT64) +
+    CAST(p4.table_name IS NOT NULL AS INT64) +
+    CAST(p5.table_name IS NOT NULL AS INT64) +
+    CAST(p6.table_name IS NOT NULL AS INT64) +
+    CAST(p7.table_name IS NOT NULL AS INT64) AS depth
+  FROM t c
+  LEFT JOIN t p1 ON c.parent_table_name = p1.table_name
+  LEFT JOIN t p2 ON p1.parent_table_name = p2.table_name
+  LEFT JOIN t p3 ON p2.parent_table_name = p3.table_name
+  LEFT JOIN t p4 ON p3.parent_table_name = p4.table_name
+  LEFT JOIN t p5 ON p4.parent_table_name = p5.table_name
+  LEFT JOIN t p6 ON p5.parent_table_name = p6.table_name
+  LEFT JOIN t p7 ON p6.parent_table_name = p7.table_name
+)
+SELECT CONCAT('DROP TABLE "', table_name, '";') AS ddl
+FROM d
+ORDER BY depth DESC, table_name;`))
+	defer dropTablesIter.Stop()
+
+	stmts := make([]string, 0)
+	for {
+		row, err := dropTablesIter.Next()
+		if err == iterator.Done {
+			break
+		}
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, &database.Error{OrigErr: err}
+		}
+
+		stmts = append(stmts, stmt)
+
+	}
+
+	return stmts, nil
 }
 
 // ensureVersionTable checks if versions table exists and, if not, creates it.
