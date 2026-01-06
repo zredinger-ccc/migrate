@@ -374,7 +374,7 @@ func (s *Spanner) constraintDropStatements(ctx context.Context) ([]string, error
 			WHEN tc.table_schema = '' THEN CONCAT('`+"`', tc.table_name, '`')"+`
 			ELSE CONCAT('`+"`', tc.table_schema, '`.`', tc.table_name, '`')"+`
 		END
-			, ' DROP CONSTRAINT IF EXISTS `+"`', tc.constraint_name, '`' ) AS ddl"+`
+			, ' DROP CONSTRAINT `+"`', tc.constraint_name, '`' ) AS ddl"+`
 		FROM
 		information_schema.table_constraints tc
 		WHERE
