@@ -304,48 +304,51 @@ func (s *Spanner) Drop() error {
 	if err != nil {
 		return err
 	}
-
-	op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-		Database:   s.config.DatabaseName,
-		Statements: viewDropStatements,
-	})
-	if err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
-	}
-	if err := op.Wait(ctx); err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
+	if len(viewDropStatements) > 0{
+		op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+			Database:   s.config.DatabaseName,
+			Statements: viewDropStatements,
+		})
+		if err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
+		}
+		if err := op.Wait(ctx); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
+		}
 	}
 	
 	constraintDropStatements, err := s.constraintDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-
-	op, err = s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-		Database:   s.config.DatabaseName,
-		Statements: constraintDropStatements,
-	})
-	if err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
-	}
-	if err := op.Wait(ctx); err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
+	if len(constraintDropStatements) > 0 {
+		op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+			Database:   s.config.DatabaseName,
+			Statements: constraintDropStatements,
+		})
+		if err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
+		}
+		if err := op.Wait(ctx); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
+		}
 	}
 
 	tableDropStatements, err := s.tableDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-
-	op, err = s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-		Database:   s.config.DatabaseName,
-		Statements: tableDropStatements,
-	})
-	if err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
-	}
-	if err := op.Wait(ctx); err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
+	if len(tableDropStatements) > 0 {
+		op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+			Database:   s.config.DatabaseName,
+			Statements: tableDropStatements,
+		})
+		if err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
+		}
+		if err := op.Wait(ctx); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
+		}
 	}
 
 	return nil
