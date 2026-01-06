@@ -299,55 +299,41 @@ func (s *Spanner) Drop() error {
 	if len(res.Statements) == 0 {
 		return nil
 	}
-	
+	stmts := make([]string, 0, 10)
 	viewDropStatements, err := s.viewDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-	if len(viewDropStatements) > 0{
-		op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   s.config.DatabaseName,
-			Statements: viewDropStatements,
-		})
-		if err != nil {
-			return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
-		}
-		if err := op.Wait(ctx); err != nil {
-			return &database.Error{OrigErr: err, Query: []byte(strings.Join(viewDropStatements, "; "))}
-		}
-	}
+	stmts = append(stmts, viewDropStatements...)
 	
 	constraintDropStatements, err := s.constraintDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-	if len(constraintDropStatements) > 0 {
-		op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-			Database:   s.config.DatabaseName,
-			Statements: constraintDropStatements,
-		})
-		if err != nil {
-			return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
-		}
-		if err := op.Wait(ctx); err != nil {
-			return &database.Error{OrigErr: err, Query: []byte(strings.Join(constraintDropStatements, "; "))}
-		}
+	stmts = append(stmts, constraintDropStatements...)
+
+	indexDropStatements, err := s.indexDropStatements(ctx)
+	if err != nil {
+		return err
 	}
+	stmts = append(stmts, indexDropStatements...)
 
 	tableDropStatements, err := s.tableDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-	if len(tableDropStatements) > 0 {
+	stmts = append(stmts, tableDropStatements...)
+
+	if len(stmts) > 0 {
 		op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
 			Database:   s.config.DatabaseName,
-			Statements: tableDropStatements,
+			Statements: stmts,
 		})
 		if err != nil {
-			return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(stmts, "; "))}
 		}
 		if err := op.Wait(ctx); err != nil {
-			return &database.Error{OrigErr: err, Query: []byte(strings.Join(tableDropStatements, "; "))}
+			return &database.Error{OrigErr: err, Query: []byte(strings.Join(stmts, "; "))}
 		}
 	}
 
@@ -388,7 +374,7 @@ func (s *Spanner) constraintDropStatements(ctx context.Context) ([]string, error
 			WHEN tc.table_schema = '' THEN CONCAT('`+"`', tc.table_name, '`')"+`
 			ELSE CONCAT('`+"`', tc.table_schema, '`.`', tc.table_name, '`')"+`
 		END
-			, ' DROP CONSTRAINT `+"`', tc.constraint_name, '`' ) AS ddl"+`
+			, ' DROP CONSTRAINT IF EXISTS `+"`', tc.constraint_name, '`' ) AS ddl"+`
 		FROM
 		information_schema.table_constraints tc
 		WHERE
@@ -402,6 +388,44 @@ func (s *Spanner) constraintDropStatements(ctx context.Context) ([]string, error
 	stmts := make([]string, 0)
 	for {
 		row, err := dropConstraintsIter.Next()
+		if err == iterator.Done {
+			break
+		}
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, &database.Error{OrigErr: err}
+		}
+
+		stmts = append(stmts, stmt)
+
+	}
+
+	return stmts, nil
+}
+
+func (s *Spanner) indexDropStatements(ctx context.Context) ([]string, error) {
+		dropIndicesIter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(`SELECT
+		CONCAT( 'ALTER TABLE ',
+			CASE
+			WHEN idx.table_schema = '' THEN CONCAT('`+"`', idx.table_name, '`')"+`
+			ELSE CONCAT('`+"`', idx.table_schema, '`.`', idx.table_name, '`')"+`
+		END
+			, ' DROP INDEX IF EXISTS`+"`', idx.index_name, '`') AS ddl"+`
+		FROM
+		information_schema.indexes idx
+		WHERE
+		idx.index_type = 'INDEX'
+		ORDER BY
+		idx.table_schema,
+		idx.table_name,
+		idx.index_name;
+
+    SELECT * FROM information_schema.indexes`))
+	defer dropIndicesIter.Stop()
+
+	stmts := make([]string, 0)
+	for {
+		row, err := dropIndicesIter.Next()
 		if err == iterator.Done {
 			break
 		}
