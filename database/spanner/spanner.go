@@ -404,13 +404,7 @@ func (s *Spanner) constraintDropStatements(ctx context.Context) ([]string, error
 }
 
 func (s *Spanner) indexDropStatements(ctx context.Context) ([]string, error) {
-		dropIndicesIter := s.db.data.Single().Query(ctx, spanner.NewStatement(`SELECT
-		CONCAT( 'ALTER TABLE ',
-			CASE
-			WHEN idx.table_schema = '' THEN CONCAT('`+"`', idx.table_name, '`')"+`
-			ELSE CONCAT('`+"`', idx.table_schema, '`.`', idx.table_name, '`')"+`
-		END
-			, ' DROP INDEX IF EXISTS `+"`', idx.index_name, '`') AS ddl"+`
+		dropIndicesIter := s.db.data.Single().Query(ctx, spanner.NewStatement(`SELECT CONCAT('DROP INDEX IF EXISTS `+"`', idx.index_name, '`') AS ddl"+`
 		FROM
 		information_schema.indexes idx
 		WHERE
