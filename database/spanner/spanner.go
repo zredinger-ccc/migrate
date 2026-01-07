@@ -284,21 +284,14 @@ func (s *Spanner) Version() (version int, dirty bool, err error) {
 
 // Drop implements database.Driver. Retrieves the database schema first and
 // creates statements to drop the indexes and tables accordingly.
-// Note: The drop statements are created in reverse order to how they're
-// provided in the schema. Assuming the schema describes how the database can
-// be "build up", it seems logical to "unbuild" the database simply by going the
-// opposite direction. More testing
+// Drop happens in the following order:
+// 	1. Drop views
+// 	2. Drop FK constraints
+// 	3. Drop Indexes
+// 	4. Drop tables
 func (s *Spanner) Drop() error {
 	ctx := context.Background()
-	res, err := s.db.admin.GetDatabaseDdl(ctx, &adminpb.GetDatabaseDdlRequest{
-		Database: s.config.DatabaseName,
-	})
-	if err != nil {
-		return &database.Error{OrigErr: err, Err: "drop failed"}
-	}
-	if len(res.Statements) == 0 {
-		return nil
-	}
+
 	stmts := make([]string, 0, 10)
 	viewDropStatements, err := s.viewDropStatements(ctx)
 	if err != nil {
@@ -306,11 +299,11 @@ func (s *Spanner) Drop() error {
 	}
 	stmts = append(stmts, viewDropStatements...)
 	
-	constraintDropStatements, err := s.constraintDropStatements(ctx)
+	foreignKeyDropStatements, err := s.foreignKeyDropStatements(ctx)
 	if err != nil {
 		return err
 	}
-	stmts = append(stmts, constraintDropStatements...)
+	stmts = append(stmts, foreignKeyDropStatements...)
 
 	indexDropStatements, err := s.indexDropStatements(ctx)
 	if err != nil {
@@ -341,143 +334,142 @@ func (s *Spanner) Drop() error {
 }
 
 func (s *Spanner) viewDropStatements(ctx context.Context) ([]string, error) {
-		dropViewsIter := s.db.data.Single().Query(ctx, spanner.NewStatement(`SELECT
-  		CONCAT('DROP VIEW `+"`', table_name, '`') AS ddl"+`
-	FROM information_schema.tables
-	WHERE table_schema = ''
-  		AND table_type = 'VIEW'
-	ORDER BY table_name;`))
-	defer dropViewsIter.Stop()
+	query := `
+		SELECT CONCAT('DROP VIEW ` + "`" + `', TABLE_NAME, '` + "`" + `') AS ddl
+		FROM information_schema.tables
+		WHERE NOT TABLE_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+		  AND TABLE_TYPE = 'VIEW'
+		ORDER BY TABLE_NAME`
 
-	stmts := make([]string, 0)
+	iter := s.db.data.Single().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
 	for {
-		row, err := dropViewsIter.Next()
+		row, err := iter.Next()
 		if err == iterator.Done {
 			break
 		}
+
 		var stmt string
 		if err := row.Columns(&stmt); err != nil {
 			return nil, &database.Error{OrigErr: err}
 		}
-
 		stmts = append(stmts, stmt)
-
 	}
 
 	return stmts, nil
 }
 
-func (s *Spanner) constraintDropStatements(ctx context.Context) ([]string, error) {
-		dropConstraintsIter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(`SELECT
-		CONCAT( 'ALTER TABLE ',
+func (s *Spanner) foreignKeyDropStatements(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT CONCAT(
+			'ALTER TABLE ',
 			CASE
-			WHEN tc.table_schema = '' THEN CONCAT('`+"`', tc.table_name, '`')"+`
-			ELSE CONCAT('`+"`', tc.table_schema, '`.`', tc.table_name, '`')"+`
-		END
-			, ' DROP CONSTRAINT `+"`', tc.constraint_name, '`' ) AS ddl"+`
-		FROM
-		information_schema.table_constraints tc
-		WHERE
-		tc.constraint_type = 'FOREIGN KEY'
-		ORDER BY
-		tc.table_schema,
-		tc.table_name,
-		tc.constraint_name;`))
-	defer dropConstraintsIter.Stop()
+				WHEN tc.table_schema = '' THEN CONCAT('` + "`" + `', tc.table_name, '` + "`" + `')
+				ELSE CONCAT('` + "`" + `', tc.table_schema, '` + "`.`" + `', tc.table_name, '` + "`" + `')
+			END,
+			' DROP CONSTRAINT ` + "`" + `', tc.constraint_name, '` + "`" + `'
+		) AS ddl
+		FROM information_schema.table_constraints tc
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+			AND NOT CONSTRAINT_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+		ORDER BY tc.table_schema, tc.table_name, tc.constraint_name`
 
-	stmts := make([]string, 0)
+	iter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
 	for {
-		row, err := dropConstraintsIter.Next()
+		row, err := iter.Next()
 		if err == iterator.Done {
 			break
 		}
+
 		var stmt string
 		if err := row.Columns(&stmt); err != nil {
 			return nil, &database.Error{OrigErr: err}
 		}
-
 		stmts = append(stmts, stmt)
-
 	}
 
 	return stmts, nil
 }
 
 func (s *Spanner) indexDropStatements(ctx context.Context) ([]string, error) {
-		dropIndicesIter := s.db.data.Single().Query(ctx, spanner.NewStatement(`SELECT CONCAT('DROP INDEX IF EXISTS `+"`', idx.index_name, '`') AS ddl"+`
-		FROM
-		information_schema.indexes idx
-		WHERE
-		idx.index_type = 'INDEX'
-		ORDER BY
-		idx.table_schema,
-		idx.table_name,
-		idx.index_name;`))
-	defer dropIndicesIter.Stop()
+	query := `
+		SELECT CONCAT('DROP INDEX IF EXISTS ` + "`" + `', idx.index_name, '` + "`" + `') AS ddl
+		FROM information_schema.indexes idx
+		WHERE idx.index_type = 'INDEX'
+			AND NOT TABLE_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+		ORDER BY idx.table_schema, idx.table_name, idx.index_name`
 
-	stmts := make([]string, 0)
+	iter := s.db.data.Single().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
 	for {
-		row, err := dropIndicesIter.Next()
+		row, err := iter.Next()
 		if err == iterator.Done {
 			break
 		}
+
 		var stmt string
-		fmt.Println(row)
 		if err := row.Columns(&stmt); err != nil {
 			return nil, &database.Error{OrigErr: err}
 		}
-
 		stmts = append(stmts, stmt)
-
 	}
 
 	return stmts, nil
 }
 
 func (s *Spanner) tableDropStatements(ctx context.Context) ([]string, error) {
-		dropTablesIter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(`WITH t AS (
-  	SELECT table_name, parent_table_name
-  FROM information_schema.tables
-  WHERE table_schema = ''
-    AND table_type = 'BASE TABLE'
-),
-d AS (
-  SELECT
-    c.table_name,
-    CAST(p1.table_name IS NOT NULL AS INT64) +
-    CAST(p2.table_name IS NOT NULL AS INT64) +
-    CAST(p3.table_name IS NOT NULL AS INT64) +
-    CAST(p4.table_name IS NOT NULL AS INT64) +
-    CAST(p5.table_name IS NOT NULL AS INT64) +
-    CAST(p6.table_name IS NOT NULL AS INT64) +
-    CAST(p7.table_name IS NOT NULL AS INT64) AS depth
-  FROM t c
-  LEFT JOIN t p1 ON c.parent_table_name = p1.table_name
-  LEFT JOIN t p2 ON p1.parent_table_name = p2.table_name
-  LEFT JOIN t p3 ON p2.parent_table_name = p3.table_name
-  LEFT JOIN t p4 ON p3.parent_table_name = p4.table_name
-  LEFT JOIN t p5 ON p4.parent_table_name = p5.table_name
-  LEFT JOIN t p6 ON p5.parent_table_name = p6.table_name
-  LEFT JOIN t p7 ON p6.parent_table_name = p7.table_name
-)
-SELECT CONCAT('DROP TABLE `+"`', table_name, '`') AS ddl"+`
-FROM d
-ORDER BY depth DESC, table_name;`))
-	defer dropTablesIter.Stop()
+	query := `
+		WITH t AS (
+			SELECT table_name, parent_table_name
+			FROM information_schema.tables
+			WHERE NOT TABLE_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+			  AND table_type = 'BASE TABLE'
+		),
+		d AS (
+			SELECT
+				c.table_name,
+				CAST(p1.table_name IS NOT NULL AS INT64) +
+				CAST(p2.table_name IS NOT NULL AS INT64) +
+				CAST(p3.table_name IS NOT NULL AS INT64) +
+				CAST(p4.table_name IS NOT NULL AS INT64) +
+				CAST(p5.table_name IS NOT NULL AS INT64) +
+				CAST(p6.table_name IS NOT NULL AS INT64) +
+				CAST(p7.table_name IS NOT NULL AS INT64) AS depth
+			FROM t c
+			LEFT JOIN t p1 ON c.parent_table_name = p1.table_name
+			LEFT JOIN t p2 ON p1.parent_table_name = p2.table_name
+			LEFT JOIN t p3 ON p2.parent_table_name = p3.table_name
+			LEFT JOIN t p4 ON p3.parent_table_name = p4.table_name
+			LEFT JOIN t p5 ON p4.parent_table_name = p5.table_name
+			LEFT JOIN t p6 ON p5.parent_table_name = p6.table_name
+			LEFT JOIN t p7 ON p6.parent_table_name = p7.table_name
+		)
+		SELECT CONCAT('DROP TABLE ` + "`" + `', table_name, '` + "`" + `') AS ddl
+		FROM d
+		ORDER BY depth DESC, table_name`
 
-	stmts := make([]string, 0)
+	iter := s.db.data.ReadOnlyTransaction().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
 	for {
-		row, err := dropTablesIter.Next()
+		row, err := iter.Next()
 		if err == iterator.Done {
 			break
 		}
+
 		var stmt string
 		if err := row.Columns(&stmt); err != nil {
 			return nil, &database.Error{OrigErr: err}
 		}
-
 		stmts = append(stmts, stmt)
-
 	}
 
 	return stmts, nil
